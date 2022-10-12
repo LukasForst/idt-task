@@ -74,6 +74,12 @@ about how can we move out of them. The idea here is not to spend $$$ on develope
 more important parts of the product. Once we calculate that developer $$$ are cheaper than the amount we're paying for SNS, we will
 implement our own fan-out solution.
 
+### Asset Storage
+
+We need a place / service where we're going to store documents/pictures/videos or whatever other assets the users store. Depending on
+our load/number of users, we can again either use hosted object storage such as [S3](https://aws.amazon.com/s3/) or go with some
+self-hosted solution as [MinIO](https://min.io/).
+
 ## Final Architecture
 
 Considering what I wrote in the previous part, see following architecture:
