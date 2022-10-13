@@ -167,3 +167,6 @@ like that.
 The suggested architecture mas at least four different microservices, which, at the beginning of the development process, might be a lot.
 So depending on the seniority and size of the team, I'd suggest merging Messaging Service and User/Conversation Service into one
 monolith and separate it later in the development process.
+
+On the other hand, when we have great team and large user base, we can separate User/Conversation Service into two, where one handles
+user data and other conversation data. That way we can improve our stack.
