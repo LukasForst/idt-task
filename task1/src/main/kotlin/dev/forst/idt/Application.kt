@@ -19,7 +19,7 @@ fun main() {
         defaultDiModule()
         // install OpenAPI plugin so we can test the server visually
         install(OpenAPIGen) {
-            // this servers OpenAPI definition on /openapi.json
+            // this serves OpenAPI definition on /openapi.json
             serveOpenApiJson = true
             // this servers Swagger UI on /swagger-ui/index.html
             serveSwaggerUi = true
