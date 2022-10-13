@@ -82,4 +82,88 @@ self-hosted solution as [MinIO](https://min.io/).
 
 ## Final Architecture
 
-Considering what I wrote in the previous part, see following architecture:
+Considering what I wrote in the previous part, my high level architecture:
+![](architecture.png)
+
+### Services
+
+#### Load Balancer / Reverse proxy
+
+Standard entry point for our infrastructure, something like Nginx, Traefik or others. This service is responsible for load balancing of
+requests, TLS termination and partially for authentication of requests using forward auth to next Auth Service.
+
+#### Auth Service
+
+Service that authenticate and authorize requests. It's primary function is to verify that the HTTP requests contain JWTs or correct
+sessions. It stores sessions in the database (Redis, Memcached or similar key value) - that way the sessions are revocable, and we can
+log out users on the server side. Moreover, it guarantees that the user can send message only to conversation they're part of.
+
+Even though it is strongly preferred, database for sessions does not need to persist data on the disk. In a case of catastrophic failure,
+we simply log out all users.
+
+Another responsibility of this service is to log in and register users. Note, that this can be moved to another microservice, but I
+don't think it is really necessary, until the project is really huge, and we can afford myriad of microservices. The users registrations
+are then passed to the User/Conversation service where they're stored.
+
+#### User/Conversation Service
+
+Service's responsibility is to store metadata about the users (username, email...) and conversations (name, membership..). These data
+are stored in database - in this case, it can be either SQL or NoSQL database. In this instance, I'd go with SQL database, because we
+have clear relationships between entities and amount of reads is going to be higher than writes, so we can utilize read only replicas for
+SQL database and scale easier. If we find out that this is not true and SQL can not handle the load, we can later switch to NoSQl.
+
+This service also stores user related assets - profile pictures. These are stored in some object storage (S3, MinIO...).
+
+Whenever a conversation is deleted or new system message must be dispatched, this service contacts Messaging Service to deliver what is
+needed.
+
+#### Messaging Service
+
+This service is responsible for storage of messages and related attachments. Messages will be stored in the NoSQL data store under
+specific conversation. NoSQL helps us to scale way easier and can be run as a distributed database.
+
+Whenever the service receives a message, it also dispatches event to the notification queue. This event is then handled by the
+Notification Service.
+
+#### Notification Service
+
+Notification Service is responsible for delivering notifications. It picks events from the events queue and either dispatches
+notification using cloud provider (SNS, Firebase..), that will deliver the notification to the device. Or in a case of active websocket
+session with the client, it directly uses the websocket to deliver the message. That way we achieve real time messaging.
+
+When horizontally scaling this service, we need to think of synchronization between the instances. More specifically, it might happen
+that user A is connected to instance #1 via websocket, but instance #2 receives the event from the queue. Should #2 pass this to the
+notification provider, because it doesn't have websocket? It should definitely not, it should pass it to the instance #1. For that
+reason the instances should announce what user's websockets they have.
+
+Note: the events queue here should be persisted on the disk, so when it crashes, we can still send notifications after it recovers, and
+we don't miss the events. Moreover, before deleting the event from the queue, notification service must confirm that the notification
+was dispatched correctly.
+
+### Scalability, Bottlenecks and Performance Issues
+
+The suggested solution stores all states in the databases, and thus we can horizontally scale all compute services that are accessing
+databases very easily.
+
+In almost all cases, the real bottleneck is going to be IO inside the databases. This is coming from my experience with similar
+solutions and Discord's article confirms that as well.
+For that reason, we need to keep track of metrics on our reads and writes to all databases and try to find out what are the bottlenecks
+as soon as possible. Because if we chose wrong solution from the beginning, we need to find that out as soon as possible.
+
+In my design, the problematic might be conversation delete, if the user would like to delete all messages. Because that way, the
+User/Conversation service needs to synchronously reach out to Messaging Service which should then delete all messages. In a case, when
+we would use Cassandra as our Messages Storage, this would not be possible as Cassandras are infamous for their lack of fast data deletion.
+We could solve this by having some sort of asynchronous conversation delete. However, that one might be tricky to implement from the
+user perspective.
+
+The architecture also hides Attachments and Assets Storages behind the Messaging and User/Conversation service, which suggests that all
+assets needs to go through the services as well. This would be quite a waste of performance and traffic, so it would be better idea to
+expose the storages directly to the internet behind the reverse proxy and only redirect users requesting data there. That way we can
+omit compute services and spare some performance and traffic. I put it into the diagram like it is because it's way easier to read it
+like that.
+
+### Side Notes
+
+The suggested architecture mas at least four different microservices, which, at the beginning of the development process, might be a lot.
+So depending on the seniority and size of the team, I'd suggest merging Messaging Service and User/Conversation Service into one
+monolith and separate it later in the development process.
